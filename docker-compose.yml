@@ -1,0 +1,71 @@
+version: '3.7'
+
+networks:
+  app-network:
+    driver: bridge
+
+
+services:
+  # PostgreSQL database container
+  postgres:
+    container_name: postgres_db
+    image: postgres:15.4-alpine3.18
+    volumes:
+      - ${DATA_PATH}/postgres:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    expose:
+      - 5432
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "sh -c 'pg_isready -U ${DB_USERNAME} -d ${DB_NAME}'",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - app-network
+    environment:
+      - LC_ALL=C.UTF-8
+      - POSTGRES_USER=${DB_USERNAME}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME}
+
+  backend:
+    build:
+      context: .
+      dockerfile: docker/backend_app/Dockerfile
+      target: server
+      args:
+        SERVICE_WORKDIR: ${SERVICE_WORKDIR}
+    image: backend_app-image
+    networks:
+      - app-network
+    container_name: backend_app
+    platform: ${PLATFORM}
+    command: python manage.py runserver 0.0.0.0:8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - backend_app/src/.env
+
+  frontend:
+    networks:
+      - app-network
+    tty: true
+    build:
+      context: .
+      dockerfile: docker/frontend_app/Dockerfile
+    container_name: react_frontend
+    command: npm start
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend_app:/app
+    depends_on:
+      - backend
